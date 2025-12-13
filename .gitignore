@@ -1,0 +1,5 @@
+config.json
+out/
+*.csv
+*.log
+.vscode/
