@@ -1,1 +1,6 @@
+{
+  "InactiveDays": 90,
+  "OutputPath": "out",
+  "ReportPrefix": "mw"
+}
 
