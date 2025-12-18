@@ -1,66 +1,92 @@
 <#
 .SYNOPSIS
-Generates a report of stale devices based on last sign-in (placeholder-friendly).
+Reports Entra ID devices that appear stale based on last sign-in activity.
 
 .DESCRIPTION
-Portfolio-safe script structure: reads config, filters by inactivity window,
-exports CSV, and prints summary. Replace Get-Data section with your tenant logic later.
+Portfolio-safe, read-only reporting script. Uses a sample dataset by design.
+In production, replace the sample dataset with Microsoft Graph queries to:
+- GET /devices
+- GET /auditLogs/signIns (or device sign-in properties where available)
+
+The script exports a CSV report to the chosen output folder.
 
 .PARAMETER InactiveDays
-Days since last sign-in to consider a device stale.
+Devices with last sign-in older than this threshold are considered stale.
 
-.OUTPUTS
-CSV report in ./out
+.PARAMETER TreatNullLastSignInAsStale
+If set, devices with missing last sign-in data are marked as stale for review.
+
+.PARAMETER OutputPath
+Relative folder where reports are written (default: out).
+
+.PARAMETER ReportPrefix
+Prefix for report file names (default: mw).
+
+.EXAMPLE
+.\Find-StaleDevices.ps1 -InactiveDays 90 -OutputPath out -ReportPrefix mw
+
+.NOTES
+- Non-destructive: read-only reporting
+- Local execution (User context)
 #>
 
+[CmdletBinding()]
 param(
-  [int]$InactiveDays = 90,
-  [string]$OutputPath = "out",
-  [string]$ReportPrefix = "mw"
+    [ValidateRange(1, 3650)]
+    [int]$InactiveDays = 90,
+
+    [switch]$TreatNullLastSignInAsStale,
+
+    [string]$OutputPath = "out",
+
+    [string]$ReportPrefix = "mw"
 )
 
-# Optional local config (not committed)
-$cfgPath = Join-Path $PSScriptRoot "..\config.json"
-if (Test-Path $cfgPath) {
-  $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
-  if ($cfg.InactiveDays) { $InactiveDays = [int]$cfg.InactiveDays }
-  if ($cfg.OutputPath) { $OutputPath = [string]$cfg.OutputPath }
-  if ($cfg.ReportPrefix) { $ReportPrefix = [string]$cfg.ReportPrefix }
+. (Join-Path (Join-Path $PSScriptRoot "..") "src/EndpointAutomation.Common.ps1")
+
+try {
+    $outDir = New-OutputDirectory -OutputPath $OutputPath
+    $cutoff = (Get-Date).AddDays(-$InactiveDays)
+
+    Write-Log -Level Info -Message ("Generating stale device report (InactiveDays={0}, Cutoff={1:yyyy-MM-dd})" -f $InactiveDays, $cutoff)
+
+    # --- Sample data (portfolio) ---
+    $devices = @(
+        [pscustomobject]@{ DisplayName="WIN-001"; DeviceId="0001"; OperatingSystem="Windows"; AccountEnabled=$true;  LastSignIn=(Get-Date).AddDays(-12)  }
+        [pscustomobject]@{ DisplayName="WIN-002"; DeviceId="0002"; OperatingSystem="Windows"; AccountEnabled=$true;  LastSignIn=(Get-Date).AddDays(-180) }
+        [pscustomobject]@{ DisplayName="MAC-003"; DeviceId="0003"; OperatingSystem="macOS";   AccountEnabled=$true;  LastSignIn=$null                  }
+        [pscustomobject]@{ DisplayName="IOS-004"; DeviceId="0004"; OperatingSystem="iOS";     AccountEnabled=$false; LastSignIn=(Get-Date).AddDays(-40)  }
+    )
+    # -------------------------------
+
+    $report = foreach ($d in $devices) {
+        $last = $d.LastSignIn
+        $inactive = if ($last) { (New-TimeSpan -Start $last -End (Get-Date)).Days } else { $null }
+
+        $stale =
+            if ($last) { $last -lt $cutoff }
+            elseif ($TreatNullLastSignInAsStale) { $true }
+            else { $false }
+
+        [pscustomobject]@{
+            DisplayName     = $d.DisplayName
+            DeviceId        = $d.DeviceId
+            OperatingSystem = $d.OperatingSystem
+            AccountEnabled  = $d.AccountEnabled
+            LastSignIn      = $last
+            InactiveDays    = $inactive
+            IsStale         = $stale
+        }
+    }
+
+    $csvPath = Join-Path $outDir ("{0}-entra-stale-devices.csv" -f $ReportPrefix)
+    Export-ReportCsv -InputObject ($report | Sort-Object IsStale -Descending, InactiveDays -Descending, DisplayName) -Path $csvPath | Out-Null
+
+    $countStale = ($report | Where-Object IsStale).Count
+    Write-Log -Level Info -Message ("Exported {0} rows ({1} stale) to {2}" -f $report.Count, $countStale, $csvPath)
+    exit 0
 }
-
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$outDir = Join-Path $repoRoot $OutputPath
-New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-
-$cutoff = (Get-Date).AddDays(-$InactiveDays)
-
-# --- Data source (replace with Graph/Entra queries in real use) ---
-$devices = @(
-  [pscustomobject]@{ DisplayName="WIN-001"; LastSignIn=(Get-Date).AddDays(-120); OperatingSystem="Windows"; AccountEnabled=$true; DeviceId="0001" },
-  [pscustomobject]@{ DisplayName="WIN-002"; LastSignIn=(Get-Date).AddDays(-14);  OperatingSystem="Windows"; AccountEnabled=$true; DeviceId="0002" },
-  [pscustomobject]@{ DisplayName="MAC-003"; LastSignIn=$null;                  OperatingSystem="macOS";   AccountEnabled=$true; DeviceId="0003" }
-)
-# ---------------------------------------------------------------
-
-$report = $devices | ForEach-Object {
-  $last = $_.LastSignIn
-  $inactiveDays = if ($last) { (New-TimeSpan -Start $last -End (Get-Date)).Days } else { $null }
-  $isStale = if ($last) { $last -lt $cutoff } else { $true }  # treat null as stale for review
-
-  [pscustomobject]@{
-    DisplayName    = $_.DisplayName
-    OperatingSystem= $_.OperatingSystem
-    AccountEnabled = $_.AccountEnabled
-    LastSignIn     = $last
-    InactiveDays   = $inactiveDays
-    DeviceId       = $_.DeviceId
-    IsStale        = $isStale
-  }
+catch {
+    Write-Log -Level Error -Message $_.Exception.Message
+    exit 1
 }
-
-$stale = $report | Where-Object IsStale | Sort-Object InactiveDays -Descending
-$csv = Join-Path $outDir "$ReportPrefix-stale-devices.csv"
-$stale | Export-Csv -NoTypeInformation -Encoding UTF8 -Path $csv
-
-Write-Host "Stale devices: $($stale.Count) (>= $InactiveDays days or unknown last sign-in)" -ForegroundColor Green
-Write-Host "Exported: $csv" -ForegroundColor Green
