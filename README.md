@@ -72,3 +72,13 @@ This repo includes:
 ## License
 
 MIT — see `LICENSE`.
+
+## Author’s note
+
+This repository reflects how I approach endpoint automation as a Modern Workplace / Intune engineer.
+The focus is on safe, predictable, and non-destructive reporting scripts with clear execution behavior
+and maintainable structure.
+
+I intentionally avoid tenant-modifying or destructive automation here.
+In real production environments, such changes require proper design, review, and governance.
+
