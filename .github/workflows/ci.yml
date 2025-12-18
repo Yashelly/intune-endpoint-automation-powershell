@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          Install-Module Pester -Scope CurrentUser -Force
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $settings = Join-Path $PWD "PSScriptAnalyzerSettings.psd1"
+          Invoke-ScriptAnalyzer -Path $PWD -Recurse -Settings $settings -Severity @('Error','Warning') -ReportSummary
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          Invoke-Pester -Path (Join-Path $PWD "tests") -Output Detailed

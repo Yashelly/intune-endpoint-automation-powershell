@@ -3,28 +3,59 @@
 Exports group members to CSV (portfolio-safe structure).
 
 .DESCRIPTION
-Accepts a GroupName/GroupId placeholder and exports a normalized member list.
-Replace the sample dataset with Graph queries in real use.
+Portfolio-safe, read-only reporting script. Uses a sample dataset by design.
+In production, replace sample data with Microsoft Graph queries:
+- GET /groups?$filter=displayName eq '{name}'
+- GET /groups/{id}/members
+
+.PARAMETER GroupName
+Target group display name (used in report metadata).
+
+.PARAMETER OutputPath
+Relative folder where reports are written (default: out).
+
+.PARAMETER ReportPrefix
+Prefix for report file names (default: mw).
+
+.EXAMPLE
+.\Export-GroupMembers.ps1 -GroupName "Intune-Admins" -OutputPath out
+
+.NOTES
+- Non-destructive: read-only reporting
+- Local execution (User context)
 #>
 
+[CmdletBinding()]
 param(
-  [string]$GroupName = "Example-Group",
-  [string]$OutputPath = "out",
-  [string]$ReportPrefix = "mw"
+    [ValidateNotNullOrEmpty()]
+    [string]$GroupName = "Example-Group",
+
+    [string]$OutputPath = "out",
+
+    [string]$ReportPrefix = "mw"
 )
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$outDir = Join-Path $repoRoot $OutputPath
-New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+. (Join-Path (Join-Path $PSScriptRoot "..") "src/EndpointAutomation.Common.ps1")
 
-# --- Data source (replace with Graph queries) ---
-$members = @(
-  [pscustomobject]@{ DisplayName="User One"; UserPrincipalName="user1@example.com"; Type="User" },
-  [pscustomobject]@{ DisplayName="User Two"; UserPrincipalName="user2@example.com"; Type="User" }
-)
-# ------------------------------------------------
+try {
+    $outDir = New-OutputDirectory -OutputPath $OutputPath
+    Write-Log -Level Info -Message ("Exporting members for group '{0}' (sample dataset)" -f $GroupName)
 
-$csv = Join-Path $outDir "$ReportPrefix-group-members-$($GroupName.Replace(' ','_')).csv"
-$members | Select-Object DisplayName, UserPrincipalName, Type | Export-Csv -NoTypeInformation -Encoding UTF8 -Path $csv
+    # --- Sample data (portfolio) ---
+    $members = @(
+        [pscustomobject]@{ GroupName=$GroupName; MemberType="User";  DisplayName="Robertas Burbo"; UserPrincipalName="robertas@example.com"; ObjectId="u-0001" }
+        [pscustomobject]@{ GroupName=$GroupName; MemberType="User";  DisplayName="Alice Admin";    UserPrincipalName="alice@example.com";    ObjectId="u-0002" }
+        [pscustomobject]@{ GroupName=$GroupName; MemberType="Device";DisplayName="WIN-001";       UserPrincipalName=$null;                 ObjectId="d-0001" }
+    )
+    # -------------------------------
 
-Write-Host "Exported members for '$GroupName' to: $csv" -ForegroundColor Green
+    $csvPath = Join-Path $outDir ("{0}-entra-group-members.csv" -f $ReportPrefix)
+    Export-ReportCsv -InputObject ($members | Sort-Object MemberType, DisplayName) -Path $csvPath | Out-Null
+
+    Write-Log -Level Info -Message ("Exported {0} members to {1}" -f $members.Count, $csvPath)
+    exit 0
+}
+catch {
+    Write-Log -Level Error -Message $_.Exception.Message
+    exit 1
+}
