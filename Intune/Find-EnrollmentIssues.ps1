@@ -1,49 +1,80 @@
 <#
 .SYNOPSIS
-Flags potential enrollment / policy application issues (placeholder-friendly).
+Reports potential enrollment or sync issues for managed devices.
 
 .DESCRIPTION
-Looks for devices with missing last check-in, error states, or missing profile assignment.
-Replace sample dataset with Intune/Graph queries later.
+Portfolio-safe detection logic. Uses sample device state data by design.
+In production, replace sample data with Microsoft Graph Intune queries:
+- GET /deviceManagement/managedDevices (enrolledDateTime, lastSyncDateTime, managementAgent, etc.)
+
+.PARAMETER StaleSyncHours
+Devices with last sync older than this threshold are flagged.
+
+.PARAMETER OutputPath
+Relative folder where reports are written (default: out).
+
+.PARAMETER ReportPrefix
+Prefix for report file names (default: mw).
+
+.EXAMPLE
+.\Find-EnrollmentIssues.ps1 -StaleSyncHours 72 -OutputPath out
+
+.NOTES
+- Non-destructive: read-only reporting
+- Local execution (User context)
 #>
 
+[CmdletBinding()]
 param(
-  [int]$MaxDaysSinceCheckIn = 7,
-  [string]$OutputPath = "out",
-  [string]$ReportPrefix = "mw"
+    [ValidateRange(1, 8760)]
+    [int]$StaleSyncHours = 72,
+
+    [string]$OutputPath = "out",
+
+    [string]$ReportPrefix = "mw"
 )
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$outDir = Join-Path $repoRoot $OutputPath
-New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+. (Join-Path (Join-Path $PSScriptRoot "..") "src/EndpointAutomation.Common.ps1")
 
-$cutoff = (Get-Date).AddDays(-$MaxDaysSinceCheckIn)
+try {
+    $outDir = New-OutputDirectory -OutputPath $OutputPath
+    $cutoff = (Get-Date).AddHours(-$StaleSyncHours)
 
-# --- Sample data ---
-$devices = @(
-  [pscustomobject]@{ DeviceName="WIN-001"; LastCheckIn=(Get-Date).AddDays(-1);  Status="OK";        HasBaseline=$true },
-  [pscustomobject]@{ DeviceName="WIN-002"; LastCheckIn=(Get-Date).AddDays(-12); Status="OK";        HasBaseline=$true },
-  [pscustomobject]@{ DeviceName="WIN-003"; LastCheckIn=$null;                  Status="Error";     HasBaseline=$false }
-)
-# -------------------
+    Write-Log -Level Info -Message ("Finding enrollment/sync issues (StaleSyncHours={0}, Cutoff={1:yyyy-MM-dd HH:mm})" -f $StaleSyncHours, $cutoff)
 
-$issues = $devices | Where-Object {
-  ($_.LastCheckIn -eq $null) -or ($_.LastCheckIn -lt $cutoff) -or ($_.Status -ne "OK") -or (-not $_.HasBaseline)
-} | ForEach-Object {
-  [pscustomobject]@{
-    DeviceName   = $_.DeviceName
-    LastCheckIn  = $_.LastCheckIn
-    Status       = $_.Status
-    HasBaseline  = $_.HasBaseline
-    IssueHint    = if ($_.Status -ne "OK") { "Status not OK" }
-                  elseif (-not $_.HasBaseline) { "Missing baseline/profile" }
-                  elseif ($_.LastCheckIn -eq $null) { "No check-in recorded" }
-                  else { "Stale check-in" }
-  }
+    # --- Sample data (portfolio) ---
+    $records = @(
+        [pscustomobject]@{ DeviceName="WIN-001"; User="robertas@example.com"; Enrolled=$true;  LastSync=(Get-Date).AddHours(-8);   EnrollmentType="Autopilot";  Notes=$null }
+        [pscustomobject]@{ DeviceName="WIN-002"; User="bob@example.com";      Enrolled=$true;  LastSync=(Get-Date).AddHours(-120); EnrollmentType="Company Portal"; Notes="No recent sync" }
+        [pscustomobject]@{ DeviceName="IOS-003"; User="alice@example.com";    Enrolled=$false; LastSync=$null;                     EnrollmentType="Unknown";    Notes="Enrollment incomplete" }
+    )
+    # -------------------------------
+
+    $issues = foreach ($r in $records) {
+        $syncStale = if ($r.LastSync) { $r.LastSync -lt $cutoff } else { $true }
+        $enrollmentIssue = -not $r.Enrolled
+
+        if ($syncStale -or $enrollmentIssue) {
+            [pscustomobject]@{
+                DeviceName      = $r.DeviceName
+                User            = $r.User
+                Enrolled        = $r.Enrolled
+                LastSync        = $r.LastSync
+                EnrollmentType  = $r.EnrollmentType
+                SyncStale       = $syncStale
+                EnrollmentIssue = $enrollmentIssue
+                Notes           = $r.Notes
+            }
+        }
+    }
+
+    $csvPath = Join-Path $outDir ("{0}-intune-enrollment-issues.csv" -f $ReportPrefix)
+    Export-ReportCsv -InputObject ($issues | Sort-Object EnrollmentIssue -Descending, SyncStale -Descending, DeviceName) -Path $csvPath | Out-Null
+
+    Write-Log -Level Info -Message ("Exported {0} issues to {1}" -f $issues.Count, $csvPath)
+    exit 0
 }
-
-$csv = Join-Path $outDir "$ReportPrefix-enrollment-issues.csv"
-$issues | Export-Csv -NoTypeInformation -Encoding UTF8 -Path $csv
-
-Write-Host "Potential issues: $($issues.Count)" -ForegroundColor Yellow
-Write-Host "Exported: $csv" -ForegroundColor Green
+catch {
+    Write-Log -Level Error -Message $_.Exception.Message
+    exit 1
+}
