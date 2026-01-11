@@ -18,37 +18,129 @@ Relative folder where reports are written (default: out).
 .PARAMETER ReportPrefix
 Prefix for report file names (default: mw).
 
-.EXAMPLE
-.\Weekly-AdminReport.ps1 -OutputPath out -ReportPrefix mw
+.PARAMETER ConfigPath
+Optional JSON config file. If provided, values are used as defaults.
 
-.NOTES
-- Non-destructive: reporting only
+.PARAMETER LogPath
+Optional log file path. If not specified, a log file is created in the output folder.
 #>
 
 [CmdletBinding()]
 param(
     [string]$OutputPath = "out",
-    [string]$ReportPrefix = "mw"
+    [string]$ReportPrefix = "mw",
+    [string]$ConfigPath = "",
+    [string]$LogPath = ""
 )
 
 . (Join-Path (Join-Path $PSScriptRoot "..") "src/EndpointAutomation.Common.ps1")
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = 'Stop'
 
 try {
-    Write-Log -Level Info -Message "Running weekly reporting bundle..."
+    $outDir = New-OutputDirectory -OutputPath $OutputPath
 
-    & (Join-Path $PSScriptRoot "..\EntraID\Find-StaleDevices.ps1") -OutputPath $OutputPath -ReportPrefix $ReportPrefix | Out-Null
-    & (Join-Path $PSScriptRoot "..\Intune\Get-DeviceComplianceSummary.ps1") -OutputPath $OutputPath -ReportPrefix $ReportPrefix | Out-Null
-    & (Join-Path $PSScriptRoot "..\Intune\Find-EnrollmentIssues.ps1") -OutputPath $OutputPath -ReportPrefix $ReportPrefix | Out-Null
-    & (Join-Path $PSScriptRoot "..\Intune\Export-AssignedPolicies.ps1") -OutputPath $OutputPath -ReportPrefix $ReportPrefix | Out-Null
-    & (Join-Path $PSScriptRoot "..\EntraID\Export-GroupMembers.ps1") -OutputPath $OutputPath -ReportPrefix $ReportPrefix | Out-Null
-    & (Join-Path $PSScriptRoot "..\EntraID\Find-OrphanedUsers.ps1") -OutputPath $OutputPath -ReportPrefix $ReportPrefix | Out-Null
+    if ([string]::IsNullOrWhiteSpace($LogPath)) {
+        $LogPath = Join-Path $outDir ("{0}-weekly.log" -f $ReportPrefix)
+    }
 
-    Write-Log -Level Info -Message ("Done. Reports are in ./{0}" -f $OutputPath)
+    $config = $null
+    if (-not [string]::IsNullOrWhiteSpace($ConfigPath)) {
+        $config = Read-JsonConfig -Path $ConfigPath
+    }
+
+    $inactiveDays = if ($config -and $config.InactiveDays) { [int]$config.InactiveDays } else { 90 }
+
+    Write-Log -Level Info -Message ("Starting weekly bundle. Output={0}" -f $outDir) -Source "Weekly-AdminReport" -LogPath $LogPath
+
+    $tasks = @(
+        @{
+            Name = "Find-StaleDevices"
+            Path = (Join-Path $PSScriptRoot "..\EntraID\Find-StaleDevices.ps1")
+            Args = @{ OutputPath=$OutputPath; ReportPrefix=$ReportPrefix; InactiveDays=$inactiveDays; LogPath=$LogPath }
+        },
+        @{
+            Name = "Get-DeviceComplianceSummary"
+            Path = (Join-Path $PSScriptRoot "..\Intune\Get-DeviceComplianceSummary.ps1")
+            Args = @{ OutputPath=$OutputPath; ReportPrefix=$ReportPrefix; LogPath=$LogPath }
+        },
+        @{
+            Name = "Find-EnrollmentIssues"
+            Path = (Join-Path $PSScriptRoot "..\Intune\Find-EnrollmentIssues.ps1")
+            Args = @{ OutputPath=$OutputPath; ReportPrefix=$ReportPrefix; LogPath=$LogPath }
+        },
+        @{
+            Name = "Export-AssignedPolicies"
+            Path = (Join-Path $PSScriptRoot "..\Intune\Export-AssignedPolicies.ps1")
+            Args = @{ OutputPath=$OutputPath; ReportPrefix=$ReportPrefix; LogPath=$LogPath }
+        },
+        @{
+            Name = "Export-GroupMembers"
+            Path = (Join-Path $PSScriptRoot "..\EntraID\Export-GroupMembers.ps1")
+            Args = @{ OutputPath=$OutputPath; ReportPrefix=$ReportPrefix; LogPath=$LogPath }
+        },
+        @{
+            Name = "Find-OrphanedUsers"
+            Path = (Join-Path $PSScriptRoot "..\EntraID\Find-OrphanedUsers.ps1")
+            Args = @{ OutputPath=$OutputPath; ReportPrefix=$ReportPrefix; LogPath=$LogPath }
+        }
+    )
+
+    $results = @()
+    $hasFailures = $false
+
+    foreach ($t in $tasks) {
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+
+        try {
+            Write-Log -Level Info -Message ("Running {0}" -f $t.Name) -Source "Weekly-AdminReport" -LogPath $LogPath
+
+            $scriptArgs = $t.Args
+            $r = & $t.Path @scriptArgs
+
+            $sw.Stop()
+
+            $results += [pscustomobject]@{
+                Script          = $t.Name
+                Status          = "Success"
+                DurationSeconds = [math]::Round($sw.Elapsed.TotalSeconds, 2)
+                CsvPath         = $r.CsvPath
+                Rows            = $r.Rows
+                Error           = ""
+            }
+        }
+        catch {
+            $sw.Stop()
+            $hasFailures = $true
+            $errMsg = $_.Exception.Message
+
+            Write-Log -Level Error -Message ("{0} failed: {1}" -f $t.Name, $errMsg) -Source "Weekly-AdminReport" -LogPath $LogPath
+
+            $results += [pscustomobject]@{
+                Script          = $t.Name
+                Status          = "Failed"
+                DurationSeconds = [math]::Round($sw.Elapsed.TotalSeconds, 2)
+                CsvPath         = ""
+                Rows            = 0
+                Error           = $errMsg
+            }
+        }
+    }
+
+    $summaryPath = Join-Path $outDir ("{0}-weekly-summary.csv" -f $ReportPrefix)
+    Export-ReportCsv -InputObject $results -Path $summaryPath | Out-Null
+
+    Write-Log -Level Info -Message ("Summary written to {0}" -f $summaryPath) -Source "Weekly-AdminReport" -LogPath $LogPath
+
+    if ($hasFailures) {
+        Write-Log -Level Error -Message "One or more scripts failed." -Source "Weekly-AdminReport" -LogPath $LogPath
+        exit 1
+    }
+
+    Write-Log -Level Info -Message ("Done. Reports are in ./{0}" -f $OutputPath) -Source "Weekly-AdminReport" -LogPath $LogPath
     exit 0
 }
 catch {
-    Write-Log -Level Error -Message $_.Exception.Message
+    Write-Log -Level Error -Message $_.Exception.Message -Source "Weekly-AdminReport" -LogPath $LogPath
     exit 1
 }

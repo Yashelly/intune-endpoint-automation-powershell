@@ -31,16 +31,19 @@ param(
 
     [string]$OutputPath = "out",
 
-    [string]$ReportPrefix = "mw"
+    [string]$ReportPrefix = "mw",
+
+    [string]$LogPath = ""
 )
 
 . (Join-Path (Join-Path $PSScriptRoot "..") "src/EndpointAutomation.Common.ps1")
 
+$ErrorActionPreference = 'Stop'
 try {
     $outDir = New-OutputDirectory -OutputPath $OutputPath
     $cutoff = (Get-Date).AddHours(-$StaleSyncHours)
 
-    Write-Log -Level Info -Message ("Finding enrollment/sync issues (StaleSyncHours={0}, Cutoff={1:yyyy-MM-dd HH:mm})" -f $StaleSyncHours, $cutoff)
+    Write-Log -Level Info -Message ("Finding enrollment/sync issues (StaleSyncHours={0}, Cutoff={1:yyyy-MM-dd HH:mm})" -f $StaleSyncHours, $cutoff) -Source "Find-EnrollmentIssues" -LogPath $LogPath
 
     # --- Sample data (portfolio) ---
     $records = @(
@@ -71,10 +74,14 @@ try {
     $csvPath = Join-Path $outDir ("{0}-intune-enrollment-issues.csv" -f $ReportPrefix)
     Export-ReportCsv -InputObject ($issues | Sort-Object EnrollmentIssue -Descending, SyncStale -Descending, DeviceName) -Path $csvPath | Out-Null
 
-    Write-Log -Level Info -Message ("Exported {0} issues to {1}" -f $issues.Count, $csvPath)
-    exit 0
+    Write-Log -Level Info -Message ("Exported {0} issues to {1}" -f $issues.Count, $csvPath) -Source "Find-EnrollmentIssues" -LogPath $LogPath
+    return [pscustomobject]@{
+        Script = "Find-EnrollmentIssues"
+        CsvPath = $csvPath
+        Rows = $issues.Count
+    }
 }
 catch {
-    Write-Log -Level Error -Message $_.Exception.Message
-    exit 1
+    Write-Log -Level Error -Message $_.Exception.Message -Source "Find-EnrollmentIssues" -LogPath $LogPath
+    throw
 }

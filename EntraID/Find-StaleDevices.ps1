@@ -39,16 +39,19 @@ param(
 
     [string]$OutputPath = "out",
 
-    [string]$ReportPrefix = "mw"
+    [string]$ReportPrefix = "mw",
+
+    [string]$LogPath = ""
 )
 
 . (Join-Path (Join-Path $PSScriptRoot "..") "src/EndpointAutomation.Common.ps1")
 
+$ErrorActionPreference = 'Stop'
 try {
     $outDir = New-OutputDirectory -OutputPath $OutputPath
     $cutoff = (Get-Date).AddDays(-$InactiveDays)
 
-    Write-Log -Level Info -Message ("Generating stale device report (InactiveDays={0}, Cutoff={1:yyyy-MM-dd})" -f $InactiveDays, $cutoff)
+    Write-Log -Level Info -Message ("Generating stale device report (InactiveDays={0}, Cutoff={1:yyyy-MM-dd})" -f $InactiveDays, $cutoff) -Source "Find-StaleDevices" -LogPath $LogPath
 
     # --- Sample data (portfolio) ---
     $devices = @(
@@ -83,10 +86,14 @@ try {
     Export-ReportCsv -InputObject ($report | Sort-Object IsStale -Descending, InactiveDays -Descending, DisplayName) -Path $csvPath | Out-Null
 
     $countStale = ($report | Where-Object IsStale).Count
-    Write-Log -Level Info -Message ("Exported {0} rows ({1} stale) to {2}" -f $report.Count, $countStale, $csvPath)
-    exit 0
+    Write-Log -Level Info -Message ("Exported {0} rows ({1} stale) to {2}" -f $report.Count, $countStale, $csvPath) -Source "Find-StaleDevices" -LogPath $LogPath
+    return [pscustomobject]@{
+        Script = "Find-StaleDevices"
+        CsvPath = $csvPath
+        Rows = $report.Count
+    }
 }
 catch {
-    Write-Log -Level Error -Message $_.Exception.Message
-    exit 1
+    Write-Log -Level Error -Message $_.Exception.Message -Source "Find-StaleDevices" -LogPath $LogPath
+    throw
 }
