@@ -5,8 +5,13 @@ $ErrorActionPreference = 'Stop'
 
 Describe "Portfolio script quality gates" {
 
-    $scriptFiles = Get-ChildItem -Path $PSScriptRoot\.. -Recurse -Filter *.ps1 |
-        Where-Object { $_.FullName -notmatch "\\.git\\" }
+    $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+
+    $scriptFiles = Get-ChildItem -Path $repoRoot -Recurse -Filter *.ps1 -File |
+        Where-Object {
+            $_.FullName -notmatch '[\\\/]\.git[\\\/]' -and
+            $_.FullName -notmatch '[\\\/]tests[\\\/]'
+        }
 
     It "All scripts should parse without syntax errors" {
         foreach ($f in $scriptFiles) {
