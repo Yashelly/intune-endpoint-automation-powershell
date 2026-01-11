@@ -82,7 +82,7 @@ function Write-Log {
             if (-not [string]::IsNullOrWhiteSpace($parent)) {
                 $null = New-Item -ItemType Directory -Force -Path $parent -ErrorAction SilentlyContinue
             }
-            Add-Content -LiteralPath $LogPath -Value $line -ErrorAction Stop
+            Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8 -ErrorAction Stop
         }
         catch {
             # Logging should not break report generation.

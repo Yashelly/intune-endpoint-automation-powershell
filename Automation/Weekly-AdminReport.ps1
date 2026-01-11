@@ -53,35 +53,37 @@ try {
 
     Write-Log -Level Info -Message ("Starting weekly bundle. Output={0}" -f $outDir) -Source "Weekly-AdminReport" -LogPath $LogPath
 
+    $repoRoot = Get-RepoRoot
+
     $tasks = @(
         @{
             Name = "Find-StaleDevices"
-            Path = (Join-Path $PSScriptRoot "..\EntraID\Find-StaleDevices.ps1")
+            Path = (Join-Path (Join-Path $repoRoot "EntraID") "Find-StaleDevices.ps1")
             Args = @{ OutputPath=$OutputPath; ReportPrefix=$ReportPrefix; InactiveDays=$inactiveDays; LogPath=$LogPath }
         },
         @{
             Name = "Get-DeviceComplianceSummary"
-            Path = (Join-Path $PSScriptRoot "..\Intune\Get-DeviceComplianceSummary.ps1")
+            Path = (Join-Path (Join-Path $repoRoot "Intune") "Get-DeviceComplianceSummary.ps1")
             Args = @{ OutputPath=$OutputPath; ReportPrefix=$ReportPrefix; LogPath=$LogPath }
         },
         @{
             Name = "Find-EnrollmentIssues"
-            Path = (Join-Path $PSScriptRoot "..\Intune\Find-EnrollmentIssues.ps1")
+            Path = (Join-Path (Join-Path $repoRoot "Intune") "Find-EnrollmentIssues.ps1")
             Args = @{ OutputPath=$OutputPath; ReportPrefix=$ReportPrefix; LogPath=$LogPath }
         },
         @{
             Name = "Export-AssignedPolicies"
-            Path = (Join-Path $PSScriptRoot "..\Intune\Export-AssignedPolicies.ps1")
+            Path = (Join-Path (Join-Path $repoRoot "Intune") "Export-AssignedPolicies.ps1")
             Args = @{ OutputPath=$OutputPath; ReportPrefix=$ReportPrefix; LogPath=$LogPath }
         },
         @{
             Name = "Export-GroupMembers"
-            Path = (Join-Path $PSScriptRoot "..\EntraID\Export-GroupMembers.ps1")
+            Path = (Join-Path (Join-Path $repoRoot "EntraID") "Export-GroupMembers.ps1")
             Args = @{ OutputPath=$OutputPath; ReportPrefix=$ReportPrefix; LogPath=$LogPath }
         },
         @{
             Name = "Find-OrphanedUsers"
-            Path = (Join-Path $PSScriptRoot "..\EntraID\Find-OrphanedUsers.ps1")
+            Path = (Join-Path (Join-Path $repoRoot "EntraID") "Find-OrphanedUsers.ps1")
             Args = @{ OutputPath=$OutputPath; ReportPrefix=$ReportPrefix; LogPath=$LogPath }
         }
     )

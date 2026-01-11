@@ -39,12 +39,47 @@ The goal is to demonstrate **enterprise-safe automation patterns**:
 
 ---
 
+## Prerequisites
+- PowerShell 7+ (recommended). PowerShell 5.1 on Windows is also supported for basic script execution.
+
 ## Quick start
 
 ```powershell
-# From repository root
+# From repository root (Windows)
 pwsh .\Automation\Weekly-AdminReport.ps1 -OutputPath out -ReportPrefix mw
+
+# From repository root (Linux/macOS)
+pwsh ./Automation/Weekly-AdminReport.ps1 -OutputPath out -ReportPrefix mw
 ```
+
+## Configuration (optional)
+
+To keep the repo tenant-agnostic, scripts default to safe, local-only behavior.
+If you want to tweak common parameters without changing command lines:
+
+1) Copy the example config:
+
+```bash
+cp config.example.json config.json
+```
+
+2) Edit `config.json` (it is ignored by git via `.gitignore`).
+
+Supported keys: `InactiveDays`, `OutputPath`, `ReportPrefix`.
+
+3) Run the bundle with the config file:
+
+```powershell
+# Windows
+pwsh .\Automation\Weekly-AdminReport.ps1 -ConfigPath config.json
+
+# Linux/macOS
+pwsh ./Automation/Weekly-AdminReport.ps1 -ConfigPath config.json
+```
+
+Notes:
+- Command-line parameters override values from the JSON config.
+- You can also provide `-LogPath` to write a run log to a specific file.
 
 ---
 
@@ -75,10 +110,11 @@ MIT — see `LICENSE`.
 
 ## Author’s note
 
+This is a portfolio snapshot and is not actively maintained.
+
 This repository reflects how I approach endpoint automation as a Modern Workplace / Intune engineer.
 The focus is on safe, predictable, and non-destructive reporting scripts with clear execution behavior
 and maintainable structure.
 
 I intentionally avoid tenant-modifying or destructive automation here.
 In real production environments, such changes require proper design, review, and governance.
-
