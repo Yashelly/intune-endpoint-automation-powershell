@@ -32,14 +32,17 @@ param(
 
     [string]$OutputPath = "out",
 
-    [string]$ReportPrefix = "mw"
+    [string]$ReportPrefix = "mw",
+
+    [string]$LogPath = ""
 )
 
 . (Join-Path (Join-Path $PSScriptRoot "..") "src/EndpointAutomation.Common.ps1")
 
+$ErrorActionPreference = 'Stop'
 try {
     $outDir = New-OutputDirectory -OutputPath $OutputPath
-    Write-Log -Level Info -Message ("Exporting members for group '{0}' (sample dataset)" -f $GroupName)
+    Write-Log -Level Info -Message ("Exporting members for group '{0}' (sample dataset)" -f $GroupName) -Source "Export-GroupMembers" -LogPath $LogPath
 
     # --- Sample data (portfolio) ---
     $members = @(
@@ -52,10 +55,14 @@ try {
     $csvPath = Join-Path $outDir ("{0}-entra-group-members.csv" -f $ReportPrefix)
     Export-ReportCsv -InputObject ($members | Sort-Object MemberType, DisplayName) -Path $csvPath | Out-Null
 
-    Write-Log -Level Info -Message ("Exported {0} members to {1}" -f $members.Count, $csvPath)
-    exit 0
+    Write-Log -Level Info -Message ("Exported {0} members to {1}" -f $members.Count, $csvPath) -Source "Export-GroupMembers" -LogPath $LogPath
+    return [pscustomobject]@{
+        Script = "Export-GroupMembers"
+        CsvPath = $csvPath
+        Rows = $members.Count
+    }
 }
 catch {
-    Write-Log -Level Error -Message $_.Exception.Message
-    exit 1
+    Write-Log -Level Error -Message $_.Exception.Message -Source "Export-GroupMembers" -LogPath $LogPath
+    throw
 }

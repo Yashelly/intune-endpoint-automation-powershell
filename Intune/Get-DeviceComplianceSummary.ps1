@@ -24,14 +24,17 @@ Prefix for report file names (default: mw).
 [CmdletBinding()]
 param(
     [string]$OutputPath = "out",
-    [string]$ReportPrefix = "mw"
+    [string]$ReportPrefix = "mw",
+
+    [string]$LogPath = ""
 )
 
 . (Join-Path (Join-Path $PSScriptRoot "..") "src/EndpointAutomation.Common.ps1")
 
+$ErrorActionPreference = 'Stop'
 try {
     $outDir = New-OutputDirectory -OutputPath $OutputPath
-    Write-Log -Level Info -Message "Generating Intune device compliance summary (sample dataset)"
+    Write-Log -Level Info -Message "Generating Intune device compliance summary (sample dataset)" -Source "Get-DeviceComplianceSummary" -LogPath $LogPath
 
     # --- Sample data (portfolio) ---
     $devices = @(
@@ -57,10 +60,14 @@ try {
     $csvPath = Join-Path $outDir ("{0}-intune-compliance-summary.csv" -f $ReportPrefix)
     Export-ReportCsv -InputObject $summary -Path $csvPath | Out-Null
 
-    Write-Log -Level Info -Message ("Exported compliance summary to {0}" -f $csvPath)
-    exit 0
+    Write-Log -Level Info -Message ("Exported compliance summary to {0}" -f $csvPath) -Source "Get-DeviceComplianceSummary" -LogPath $LogPath
+    return [pscustomobject]@{
+        Script = "Get-DeviceComplianceSummary"
+        CsvPath = $csvPath
+        Rows = $summary.Count
+    }
 }
 catch {
-    Write-Log -Level Error -Message $_.Exception.Message
-    exit 1
+    Write-Log -Level Error -Message $_.Exception.Message -Source "Get-DeviceComplianceSummary" -LogPath $LogPath
+    throw
 }

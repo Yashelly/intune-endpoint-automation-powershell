@@ -32,14 +32,17 @@ param(
 
     [string]$OutputPath = "out",
 
-    [string]$ReportPrefix = "mw"
+    [string]$ReportPrefix = "mw",
+
+    [string]$LogPath = ""
 )
 
 . (Join-Path (Join-Path $PSScriptRoot "..") "src/EndpointAutomation.Common.ps1")
 
+$ErrorActionPreference = 'Stop'
 try {
     $outDir = New-OutputDirectory -OutputPath $OutputPath
-    Write-Log -Level Info -Message ("Finding users missing group '{0}' (sample dataset)" -f $ExpectedGroup)
+    Write-Log -Level Info -Message ("Finding users missing group '{0}' (sample dataset)" -f $ExpectedGroup) -Source "Find-OrphanedUsers" -LogPath $LogPath
 
     # --- Sample data (portfolio) ---
     $users = @(
@@ -66,10 +69,14 @@ try {
     $csvPath = Join-Path $outDir ("{0}-entra-orphaned-users.csv" -f $ReportPrefix)
     Export-ReportCsv -InputObject ($missing | Sort-Object DisplayName) -Path $csvPath | Out-Null
 
-    Write-Log -Level Info -Message ("Exported {0} orphaned users to {1}" -f $missing.Count, $csvPath)
-    exit 0
+    Write-Log -Level Info -Message ("Exported {0} orphaned users to {1}" -f $missing.Count, $csvPath) -Source "Find-OrphanedUsers" -LogPath $LogPath
+    return [pscustomobject]@{
+        Script = "Find-OrphanedUsers"
+        CsvPath = $csvPath
+        Rows = $missing.Count
+    }
 }
 catch {
-    Write-Log -Level Error -Message $_.Exception.Message
-    exit 1
+    Write-Log -Level Error -Message $_.Exception.Message -Source "Find-OrphanedUsers" -LogPath $LogPath
+    throw
 }

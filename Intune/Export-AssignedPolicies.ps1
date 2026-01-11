@@ -26,14 +26,17 @@ Prefix for report file names (default: mw).
 [CmdletBinding()]
 param(
     [string]$OutputPath = "out",
-    [string]$ReportPrefix = "mw"
+    [string]$ReportPrefix = "mw",
+
+    [string]$LogPath = ""
 )
 
 . (Join-Path (Join-Path $PSScriptRoot "..") "src/EndpointAutomation.Common.ps1")
 
+$ErrorActionPreference = 'Stop'
 try {
     $outDir = New-OutputDirectory -OutputPath $OutputPath
-    Write-Log -Level Info -Message "Exporting policy assignments (sample dataset)"
+    Write-Log -Level Info -Message "Exporting policy assignments (sample dataset)" -Source "Export-AssignedPolicies" -LogPath $LogPath
 
     # --- Sample data (portfolio) ---
     $assignments = @(
@@ -46,10 +49,14 @@ try {
     $csvPath = Join-Path $outDir ("{0}-intune-policy-assignments.csv" -f $ReportPrefix)
     Export-ReportCsv -InputObject ($assignments | Sort-Object PolicyType, PolicyName) -Path $csvPath | Out-Null
 
-    Write-Log -Level Info -Message ("Exported {0} assignments to {1}" -f $assignments.Count, $csvPath)
-    exit 0
+    Write-Log -Level Info -Message ("Exported {0} assignments to {1}" -f $assignments.Count, $csvPath) -Source "Export-AssignedPolicies" -LogPath $LogPath
+    return [pscustomobject]@{
+        Script = "Export-AssignedPolicies"
+        CsvPath = $csvPath
+        Rows = $assignments.Count
+    }
 }
 catch {
-    Write-Log -Level Error -Message $_.Exception.Message
-    exit 1
+    Write-Log -Level Error -Message $_.Exception.Message -Source "Export-AssignedPolicies" -LogPath $LogPath
+    throw
 }
